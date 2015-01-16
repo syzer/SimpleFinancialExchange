@@ -1,49 +1,52 @@
 
 import java.util.{Comparator, PriorityQueue}
 
-/** *
-  *
-  * @author Shahbaz Chaudhary (shahbazc gmail com)
-  *
-  */
-
-
 abstract class OrderBookRequest
+
 case class NewOrder(timestamp: Long, tradeID: String, symbol: String, qty: Long, isBuy: Boolean, price: Option[Double]) extends OrderBookRequest
+
 case class Cancel(timestamp: Long, order: NewOrder) extends OrderBookRequest
-case class Amend(timestamp: Long, order:NewOrder, newPrice:Option[Double], newQty:Option[Long]) extends OrderBookRequest
+
+case class Amend(timestamp: Long, order: NewOrder, newPrice: Option[Double], newQty: Option[Long]) extends OrderBookRequest
 
 abstract class OrderBookResponse
+
 case class Filled(timestamp: Long, price: Double, qty: Long, order: Array[NewOrder]) extends OrderBookResponse
+
 case class Acknowledged(timestamp: Long, request: OrderBookRequest) extends OrderBookResponse
+
 case class Rejected(timestamp: Long, error: String, request: OrderBookRequest) extends OrderBookResponse
+
 case class Canceled(timestamp: Long, reason: String, order: NewOrder) extends OrderBookResponse
 
 abstract class MarketDataEvent
+
 case class LastSalePrice(timestamp: Long, symbol: String, price: Double, qty: Long, volume: Long) extends MarketDataEvent
-case class BBOChange(timestamp: Long, symbol: String, bidPrice:Option[Double], bidQty:Option[Long], offerPrice:Option[Double], offerQty:Option[Long]) extends MarketDataEvent
+
+case class BBOChange(timestamp: Long, symbol: String, bidPrice: Option[Double], bidQty: Option[Long], offerPrice: Option[Double], offerQty: Option[Long]) extends MarketDataEvent
 
 
 class OrderBook(symbol: String) {
-  case class Order(timestamp: Long, tradeID: String, symbol: String, var qty: Long, isBuy: Boolean, var price: Option[Double], newOrderEvent:NewOrder)
+
+  case class Order(timestamp: Long, tradeID: String, symbol: String, var qty: Long, isBuy: Boolean, var price: Option[Double], newOrderEvent: NewOrder)
 
   val bidOrdering = Ordering.by { order: Order => (order.timestamp, order.price.get)}
   val offerOrdering = bidOrdering.reverse
 
   //Needed for java.util.PriorityQueue
-  val bidComparator = new Comparator[Order]{
-    def compare(o1:Order, o2:Order):Int = bidOrdering.compare(o1,o2)
+  val bidComparator = new Comparator[Order] {
+    def compare(o1: Order, o2: Order): Int = bidOrdering.compare(o1, o2)
   }
-  val offerComparator = new Comparator[Order]{
-    def compare(o1:Order, o2:Order):Int = offerOrdering.compare(o1,o2)
+  val offerComparator = new Comparator[Order] {
+    def compare(o1: Order, o2: Order): Int = offerOrdering.compare(o1, o2)
   }
 
   //val bidsQ = new mutable.PriorityQueue[NewOrder]()(bidOrdering)
   //val offersQ = new mutable.PriorityQueue[NewOrder]()(offerOrdering)
 
   //scala PQ doesn't let me remove items, so must revert to Java's PQ
-  val bidsQ = new PriorityQueue[Order](5,bidComparator)
-  val offersQ = new PriorityQueue[Order](5,offerComparator)
+  val bidsQ = new PriorityQueue[Order](5, bidComparator)
+  val offersQ = new PriorityQueue[Order](5, offerComparator)
 
   var bestBid: Option[Order] = None
   var bestOffer: Option[Order] = None
@@ -63,40 +66,40 @@ class OrderBook(symbol: String) {
       else {
         this.transactionObserver(Acknowledged(currentTime, order))
 
-        val orderBookOrder = Order(order.timestamp,order.tradeID,order.symbol,order.qty,order.isBuy,order.price,order)
+        val orderBookOrder = Order(order.timestamp, order.tradeID, order.symbol, order.qty, order.isBuy, order.price, order)
         processNewOrder(orderBookOrder)
       }
     }
-    case cancel:Cancel => {
+    case cancel: Cancel => {
       val order = cancel.order
 
       val orderQ = if (order.isBuy) bidsQ else offersQ
 
       val isRemoved = orderQ.remove(order)
 
-      if(isRemoved){
-        this.transactionObserver(Acknowledged(System.currentTimeMillis(),cancel))
+      if (isRemoved) {
+        this.transactionObserver(Acknowledged(System.currentTimeMillis(), cancel))
         updateBBO()
       }
-      else this.transactionObserver(Rejected(System.currentTimeMillis(),"Order not found",cancel))
+      else this.transactionObserver(Rejected(System.currentTimeMillis(), "Order not found", cancel))
     }
-    case amend:Amend => {
+    case amend: Amend => {
       val order = amend.order
-      val orderBookOrder = Order(order.timestamp,order.tradeID,order.symbol,order.qty,order.isBuy,order.price,order)
+      val orderBookOrder = Order(order.timestamp, order.tradeID, order.symbol, order.qty, order.isBuy, order.price, order)
 
       val orderQ = if (order.isBuy) bidsQ else offersQ
       val oppositeQ = if (order.isBuy) offersQ else bidsQ
 
-      if(!orderQ.remove(orderBookOrder)){
-        this.transactionObserver(Rejected(System.currentTimeMillis(),"Order not found",amend))
+      if (!orderQ.remove(orderBookOrder)) {
+        this.transactionObserver(Rejected(System.currentTimeMillis(), "Order not found", amend))
       }
-      else{
+      else {
 
-        if(amend.newQty.isDefined) orderBookOrder.qty = amend.newQty.get
-        if(amend.newPrice.isDefined) orderBookOrder.price = amend.newPrice
+        if (amend.newQty.isDefined) orderBookOrder.qty = amend.newQty.get
+        if (amend.newPrice.isDefined) orderBookOrder.price = amend.newPrice
 
         orderQ.add(orderBookOrder)
-        this.transactionObserver(Acknowledged(System.currentTimeMillis(),amend))
+        this.transactionObserver(Acknowledged(System.currentTimeMillis(), amend))
         updateBBO()
       }
     }
@@ -134,21 +137,21 @@ class OrderBook(symbol: String) {
     val bidHead = Option(bidsQ.peek)
     val offerHead = Option(offersQ.peek)
 
-    if(bidHead != bestBid || offerHead != bestOffer){
+    if (bidHead != bestBid || offerHead != bestOffer) {
       bestBid = bidHead
       bestOffer = offerHead
 
-      var bidPrice:Option[Double]=None
-      var bidQty:Option[Long]=None
-      var offerPrice:Option[Double]=None
-      var offerQty:Option[Long] = None
+      var bidPrice: Option[Double] = None
+      var bidQty: Option[Long] = None
+      var offerPrice: Option[Double] = None
+      var offerQty: Option[Long] = None
 
       //TODO: Does scala have some sort of monad magic to get rid of these, essentially, nested null checks?
-      if(bestBid.isDefined){
+      if (bestBid.isDefined) {
         bidPrice = bestBid.get.price
         bidQty = Some(bestBid.get.qty)
       }
-      if(bestOffer.isDefined){
+      if (bestOffer.isDefined) {
         offerPrice = bestOffer.get.price
         offerQty = Some(bestOffer.get.qty)
       }
@@ -199,7 +202,6 @@ class OrderBook(symbol: String) {
       updateBBO()
     }
   }
-
 
 
   def listenForEvents(observer: (OrderBookResponse) => Unit): Unit = this.transactionObserver = observer
